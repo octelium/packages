@@ -68,7 +68,7 @@ jobs:
           DISPATCH_TAG: ${{ github.event.client_payload.tag }}
         run: |
           set -euo pipefail
-          go build -o "$RUNNER_TEMP/pkgrepo" ./cmd/pkgrepo
+          go build -buildvcs=false -o "$RUNNER_TEMP/pkgrepo" ./cmd/pkgrepo
           args=(--storage "r2://$R2_BUCKET_NAME" --key "awskms:$AWS_KMS_KEY_ARN" --work "$RUNNER_TEMP/work")
           release="$MANUAL_RELEASE"
           if [[ "$GITHUB_EVENT_NAME" == repository_dispatch ]]; then
