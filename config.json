@@ -1,0 +1,13 @@
+{
+  "url": "https://packages.octelium.com",
+  "name": "octelium",
+  "title": "Octelium",
+  "uid": "Octelium Packages <contact@octelium.com>",
+  "retain": 5,
+  "grace": "72h",
+  "github": ["octelium/octelium", "octelium/octelium-desktop"],
+  "formats": {
+    "deb": {"suite": "stable", "component": "main", "architectures": ["amd64", "arm64"]},
+    "rpm": {}
+  }
+}
