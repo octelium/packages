@@ -3,14 +3,17 @@ name: Publish
 on:
   schedule:
     - cron: "17 * * * *"
+
   repository_dispatch:
     types: [publish]
+
   workflow_dispatch:
     inputs:
       release:
         description: Release to publish as owner/repo@tag (empty publishes the latest release of every configured repository)
         required: false
         type: string
+
       rebuild:
         description: Regenerate and re-sign repository metadata
         required: false
@@ -19,7 +22,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: packages-production
@@ -31,57 +33,87 @@ jobs:
     container: docker.io/library/fedora:44
     timeout-minutes: 60
     environment: packages-production
+
     defaults:
       run:
         shell: bash
+
     steps:
       - name: Install repository tools
-        run: dnf install -y --setopt=install_weak_deps=False git-core rpm-sign createrepo_c
+        run: |
+          dnf install -y \
+            --setopt=install_weak_deps=False \
+            git-core \
+            rpm-sign \
+            createrepo_c
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
           allowed-account-ids: ${{ secrets.AWS_ACCOUNT_ID }}
           mask-aws-account-id: true
 
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
       - name: Publish
         env:
           CGO_ENABLED: "0"
+
           GITHUB_TOKEN: ${{ github.token }}
+
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+
           AWS_KMS_KEY_ARN: ${{ secrets.AWS_KMS_KEY_ARN }}
+
           MANUAL_RELEASE: ${{ inputs.release }}
           REBUILD: ${{ inputs.rebuild }}
+
           DISPATCH_REPOSITORY: ${{ github.event.client_payload.repository }}
           DISPATCH_TAG: ${{ github.event.client_payload.tag }}
         run: |
           set -euo pipefail
-          go build -o "$RUNNER_TEMP/pkgrepo" ./cmd/pkgrepo
-          args=(--storage "r2://$R2_BUCKET_NAME" --key "awskms:$AWS_KMS_KEY_ARN" --work "$RUNNER_TEMP/work")
+
+          go build \
+            -o "$RUNNER_TEMP/pkgrepo" \
+            ./cmd/pkgrepo
+
+          args=(
+            --storage "r2://$R2_BUCKET_NAME"
+            --key "awskms:$AWS_KMS_KEY_ARN"
+            --work "$RUNNER_TEMP/work"
+          )
+
           release="$MANUAL_RELEASE"
+
           if [[ "$GITHUB_EVENT_NAME" == repository_dispatch ]]; then
             release="$DISPATCH_REPOSITORY${DISPATCH_TAG:+@$DISPATCH_TAG}"
           fi
+
           if [[ -n "$release" ]]; then
             args+=(--github "$release")
           else
             args+=(--sync)
           fi
+
           if [[ "$REBUILD" == true ]]; then
             args+=(--rebuild)
           fi
+
           "$RUNNER_TEMP/pkgrepo" publish "${args[@]}"
